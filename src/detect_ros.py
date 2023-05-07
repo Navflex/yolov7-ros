@@ -160,9 +160,10 @@ class Yolov7Publisher:
             bboxes = [[int(x1), int(y1), int(x2), int(y2)]
                       for x1, y1, x2, y2 in detections[:, :4].tolist()]
             classes = [int(c) for c in detections[:, 5].tolist()]
-            vis_img = draw_detections(np_img_orig, bboxes, classes,
+            rgb_img = cv2.cvtColor(np_img_orig, cv2.COLOR_BGR2RGB)
+            vis_img = draw_detections(rgb_img, bboxes, classes,
                                       self.class_labels)
-            vis_msg = self.bridge.cv2_to_imgmsg(vis_img)
+            vis_msg = self.bridge.cv2_to_imgmsg(vis_img, encoding='rgb8')
             self.visualization_publisher.publish(vis_msg)
 
 
