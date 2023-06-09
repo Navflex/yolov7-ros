@@ -1,0 +1,5 @@
+pallet
+cart
+box_trailer
+curtain_trailer
+container
