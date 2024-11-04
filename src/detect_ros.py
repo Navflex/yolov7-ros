@@ -18,6 +18,11 @@ from vision_msgs.msg import Detection2DArray, Detection2D, BoundingBox2D
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
+# Import TensorRT dependencies
+import tensorrt as trt
+import pycuda.driver as cuda
+import pycuda.autoinit
+
 
 def parse_classes_file(path):
     classes = []
@@ -71,6 +76,81 @@ class YoloV7:
             detections = detections[0]
         return detections
 
+class YoloTRT:
+    """Class for running YOLOv7 inference using TensorRT."""
+    def __init__(self, engine_path, conf_thresh=0.5, iou_thresh=0.4):
+        self.conf_thresh = conf_thresh
+        self.iou_thresh = iou_thresh  # IoU threshold for NMS
+        self.stream = cuda.Stream()
+
+        # Initialize TensorRT engine and context
+        TRT_LOGGER = trt.Logger(trt.Logger.INFO)
+        runtime = trt.Runtime(TRT_LOGGER)
+        with open(engine_path, "rb") as f:
+            engine_data = f.read()
+        self.engine = runtime.deserialize_cuda_engine(engine_data)
+        self.context = self.engine.create_execution_context()
+
+        # Set up memory allocation
+        self.input_shape = self.engine.get_binding_shape(0)
+        self.output_shape = self.engine.get_binding_shape(1)
+        self.input_size = trt.volume(self.input_shape) * self.engine.max_batch_size
+        self.output_size = trt.volume(self.output_shape) * self.engine.max_batch_size
+        self.dtype = trt.nptype(self.engine.get_binding_dtype(0))
+
+        # Allocate host and device buffers
+        self.host_input = cuda.pagelocked_empty(self.input_size, dtype=self.dtype)
+        self.cuda_input = cuda.mem_alloc(self.host_input.nbytes)
+        self.host_output = cuda.pagelocked_empty(self.output_size, dtype=self.dtype)
+        self.cuda_output = cuda.mem_alloc(self.host_output.nbytes)
+
+    def preprocess(self, img):
+        """Preprocess the image for TensorRT inference.
+        The image is resized to match the TensorRT input shape, converted to RGB, 
+        normalized, and flattened into a contiguous array for TensorRT.
+        """
+        img_resized = cv2.resize(img, (self.input_shape[2], self.input_shape[1]))
+        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+        img_normalized = img_rgb.astype(np.float32) / 255.0
+        img_transposed = np.transpose(img_normalized, (2, 0, 1))
+        img_flattened = img_transposed.flatten()
+        np.copyto(self.host_input, img_flattened)
+        return img
+
+    def inference(self, img):
+        """Run inference using TensorRT."""
+        self.preprocess(img)
+        cuda.memcpy_htod_async(self.cuda_input, self.host_input, self.stream)
+        self.context.execute_async_v2(bindings=[int(self.cuda_input), int(self.cuda_output)], stream_handle=self.stream.handle)
+        cuda.memcpy_dtoh_async(self.host_output, self.cuda_output, self.stream)
+        self.stream.synchronize()
+        return self.postprocess(self.host_output, img.shape[:2])
+
+    def postprocess(self, outputs, original_shape):
+        """Postprocess the output from TensorRT and apply NMS."""
+        h_orig, w_orig = original_shape
+        num_detections = int(outputs[0])
+        detections = []
+
+        for i in range(num_detections):
+            x1, y1, x2, y2, conf, class_id = outputs[1 + 6 * i: 1 + 6 * (i + 1)]
+            if conf > self.conf_thresh:
+                # Scale the bounding boxes back to the original image size
+                x1 = int(x1 * (w_orig / self.input_shape[2]))
+                y1 = int(y1 * (h_orig / self.input_shape[1]))
+                x2 = int(x2 * (w_orig / self.input_shape[2]))
+                y2 = int(y2 * (h_orig / self.input_shape[1]))
+                detections.append([x1, y1, x2, y2, conf, class_id])
+
+        # Apply Non-Maximum Suppression
+        if detections:
+            detections = torch.tensor(detections)  # Convert to a PyTorch tensor
+            detections = non_max_suppression(
+                detections.unsqueeze(0), self.conf_thresh, self.iou_thresh
+            )[0]
+
+        return detections.numpy() if detections is not None else np.array([])
+
 
 class Yolov7Publisher:
     def __init__(self, img_topic: str, weights: str, conf_thresh: float = 0.5,
@@ -78,7 +158,8 @@ class Yolov7Publisher:
                  device: str = "cuda",
                  img_size: Union[Tuple[int, int], None] = (640, 640),
                  queue_size: int = 1, visualize: bool = False,
-                 class_labels: Union[List, None] = None):
+                 class_labels: Union[List, None] = None,
+                 use_tensorrt: bool = False, trt_engine: str = None):
         """
         :param img_topic: name of the image topic to listen to
         :param weights: path/to/yolo_weights.pt
@@ -110,10 +191,15 @@ class Yolov7Publisher:
         self.bridge = CvBridge()
 
         self.tensorize = ToTensor()
-        self.model = YoloV7(
-            weights=weights, conf_thresh=conf_thresh, iou_thresh=iou_thresh,
-            device=device
-        )
+        if self.use_tensorrt:
+            if not trt_engine:
+                raise ValueError("TensorRT engine path must be provided if use_tensorrt is True.")
+            self.model = YoloTRT(trt_engine, conf_thresh)
+        else:
+            self.model = YoloV7(
+                weights=weights, conf_thresh=conf_thresh, iou_thresh=iou_thresh,
+                device=device
+            )
         self.img_subscriber = rospy.Subscriber(
             img_topic, Image, self.process_img_msg
         )
@@ -134,22 +220,26 @@ class Yolov7Publisher:
 
         h_orig, w_orig, c = np_img_orig.shape
 
-        # automatically resize the image to the next smaller possible size
-        w_scaled, h_scaled = self.img_size
-        np_img_resized = cv2.resize(np_img_orig, (w_scaled, h_scaled))
+        if self.use_tensorrt:
+            # TensorRT inference
+            detections = self.model.inference(np_img_orig)
+        else:
+            # automatically resize the image to the next smaller possible size
+            w_scaled, h_scaled = self.img_size
+            np_img_resized = cv2.resize(np_img_orig, (w_scaled, h_scaled))
 
-        # conversion to torch tensor (copied from original yolov7 repo)
-        img = np_img_resized.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-        img = torch.from_numpy(np.ascontiguousarray(img))
-        img = img.float()  # uint8 to fp16/32
-        img /= 255  # 0 - 255 to 0.0 - 1.
-        img = img.to(self.device)
+            # conversion to torch tensor (copied from original yolov7 repo)
+            img = np_img_resized.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+            img = torch.from_numpy(np.ascontiguousarray(img))
+            img = img.float()  # uint8 to fp16/32
+            img /= 255  # 0 - 255 to 0.0 - 1.
+            img = img.to(self.device)
 
-        # inference & rescaling the output to original img size
-        detections = self.model.inference(img)
-        detections[:, :4] = rescale(
-            [h_scaled, w_scaled], detections[:, :4], [h_orig, w_orig])
-        detections[:, :4] = detections[:, :4].round()
+            # inference & rescaling the output to original img size
+            detections = self.model.inference(img)
+            detections[:, :4] = rescale(
+                [h_scaled, w_scaled], detections[:, :4], [h_orig, w_orig])
+            detections[:, :4] = detections[:, :4].round()
 
         # publishing
         detection_msg = create_detection_msg(img_msg, detections)
@@ -182,6 +272,8 @@ if __name__ == "__main__":
     img_size = rospy.get_param(ns + "img_size")
     visualize = rospy.get_param(ns + "visualize")
     device = rospy.get_param(ns + "device")
+    trt_engine_path = rospy.get_param(ns + "trt_engine_path", None)  # Added parameter for TensorRT engine
+    use_tensorrt = rospy.get_param(ns + "use_tensorrt", False)  # Added flag for TensorRT usage
 
     # some sanity checks
     if not os.path.isfile(weights_path):
@@ -209,7 +301,9 @@ if __name__ == "__main__":
         iou_thresh=iou_thresh,
         img_size=(img_size, img_size),
         queue_size=queue_size,
-        class_labels=classes
+        class_labels=classes,
+        trt_engine=trt_engine_path,  # Pass the TensorRT engine path
+        use_tensorrt=use_tensorrt 
     )
 
     rospy.spin()
