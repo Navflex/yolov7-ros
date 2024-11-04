@@ -104,6 +104,18 @@ class YoloTRT:
         self.host_output = cuda.pagelocked_empty(self.output_size, dtype=self.dtype)
         self.cuda_output = cuda.mem_alloc(self.host_output.nbytes)
 
+    def __del__(self):
+        """Destructor to clean up resources."""
+        # Free CUDA memory allocations
+        if hasattr(self, 'cuda_input') and self.cuda_input:
+            self.cuda_input.free()
+        if hasattr(self, 'cuda_output') and self.cuda_output:
+            self.cuda_output.free()
+        if hasattr(self, 'stream') and self.stream:
+            self.stream = None  # Let pycuda handle cleanup
+        self.context = None
+        self.engine = None
+
     def preprocess(self, img):
         """Preprocess the image for TensorRT inference.
         The image is resized to match the TensorRT input shape, converted to RGB, 
@@ -194,7 +206,7 @@ class Yolov7Publisher:
         if self.use_tensorrt:
             if not trt_engine:
                 raise ValueError("TensorRT engine path must be provided if use_tensorrt is True.")
-            self.model = YoloTRT(trt_engine, conf_thresh)
+            self.model = YoloTRT(trt_engine, conf_thresh,iou_thresh=iou_thresh)
         else:
             self.model = YoloV7(
                 weights=weights, conf_thresh=conf_thresh, iou_thresh=iou_thresh,
