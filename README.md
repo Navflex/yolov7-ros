@@ -58,3 +58,16 @@ You can visualize the yolo results if you set the `visualize` flag in the [launc
 
 ## Coming Soon
 - ROS2 implementation
+
+## Addition of TensoRT models
+### Installing dependencies
+The setup_tensorrt_environment.sh script was added to handle the installation of dependencies needed for running inference pipelines with TensorRT models.
+
+Make the script executable and run it:
+
+```
+chmod +x setup_environment.sh
+./setup_environment.sh
+```
+
+
