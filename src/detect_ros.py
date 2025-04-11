@@ -140,10 +140,8 @@ class Yolov7Publisher:
 
         # conversion to torch tensor (copied from original yolov7 repo)
         img = np_img_resized.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-        img = torch.from_numpy(np.ascontiguousarray(img))
-        img = img.float()  # uint8 to fp16/32
-        img /= 255  # 0 - 255 to 0.0 - 1.
-        img = img.to(self.device)
+        img = torch.from_numpy(np.ascontiguousarray(img)).to(self.device)  # stays uint8
+        img = img.float() / 255.0  # float conversion now happens on GPU
 
         # inference & rescaling the output to original img size
         detections = self.model.inference(img)
