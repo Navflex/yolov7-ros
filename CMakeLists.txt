@@ -1,4 +1,7 @@
 cmake_minimum_required(VERSION 3.0.2)
+if(POLICY CMP0048)
+  cmake_policy(SET CMP0048 NEW)
+endif()
 project(yolov7_ros)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
