@@ -1,4 +1,7 @@
 cmake_minimum_required(VERSION 3.0.2)
+if(POLICY CMP0048)
+  cmake_policy(SET CMP0048 NEW)
+endif()
 project(yolov7_ros)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
@@ -24,7 +27,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
-# catkin_python_setup()
+catkin_python_setup()
 
 ################################################
 ## Declare ROS messages, services and actions ##
@@ -51,9 +54,9 @@ find_package(catkin REQUIRED COMPONENTS
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-add_message_files(
-  FILES
-)
+# add_message_files(
+#   FILES
+# )
 
 ## Generate services in the 'srv' folder
 # add_service_files(
@@ -70,14 +73,14 @@ add_message_files(
 # )
 
 ## Generate added messages and services with any dependencies listed here
-generate_messages(
-  DEPENDENCIES
-  geometry_msgs
-  sensor_msgs
-  std_msgs
-  vision_msgs
-  yolov7_ros
-)
+# generate_messages(
+#   DEPENDENCIES
+#   geometry_msgs
+#   sensor_msgs
+#   std_msgs
+#   vision_msgs
+#   yolov7_ros
+# )
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
