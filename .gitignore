@@ -1,3 +1,7 @@
 # Python cache files
 __pycache__/
 *.pyc
+.DS_Store
+.idea/
+.catkin_tools/
+.catkin_workspace/

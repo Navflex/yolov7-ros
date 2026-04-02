@@ -214,3 +214,12 @@ catkin_install_python(PROGRAMS
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
+
+install(DIRECTORY weights/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/weights
+  FILES_MATCHING PATTERN "*.pt"
+)
+install(DIRECTORY class_labels/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/class_labels
+  FILES_MATCHING PATTERN "*.txt"
+)
