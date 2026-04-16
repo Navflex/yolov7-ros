@@ -13,6 +13,7 @@ import cv2
 from torchvision.transforms import ToTensor
 import numpy as np
 import rospy
+import rospkg
 
 from vision_msgs.msg import Detection2DArray, Detection2D, BoundingBox2D
 from sensor_msgs.msg import Image
@@ -170,8 +171,19 @@ if __name__ == "__main__":
 
     ns = rospy.get_name() + "/"
 
-    weights_path = rospy.get_param(ns + "weights_path")
-    classes_path = rospy.get_param(ns + "classes_path")
+    weights_path = rospy.get_param(ns + "weights_path", None)
+    if not weights_path:
+        raise ValueError("weights_path parameter is required but not set")
+    if os.path.isabs(weights_path):
+        raise ValueError(f"weights_path must be a relative path, got absolute: '{weights_path}'")
+    pkg_path = rospkg.RosPack().get_path("yolov7_ros")
+    weights_path = os.path.join(pkg_path, weights_path)
+    classes_path = rospy.get_param(ns + "classes_path", None)
+    if not classes_path:
+        raise ValueError("classes_path parameter is required but not set")
+    if os.path.isabs(classes_path):
+        raise ValueError(f"classes_path must be a relative path, got absolute: '{classes_path}'")
+    classes_path = os.path.join(pkg_path, classes_path)
     img_topic = rospy.get_param(ns + "img_topic")
     out_topic = rospy.get_param(ns + "out_topic")
     conf_thresh = rospy.get_param(ns + "conf_thresh")
