@@ -55,6 +55,7 @@ class YoloV7:
         self.device = device
         self.model = attempt_load(weights, map_location=device)
         self.model.eval()
+        rospy.loginfo(f"YoloV7 model loaded successfully from: {weights}")
 
     @torch.no_grad()
     def inference(self, img: torch.Tensor):
