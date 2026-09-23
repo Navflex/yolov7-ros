@@ -17,6 +17,7 @@ import rospkg
 
 from vision_msgs.msg import Detection2DArray, Detection2D, BoundingBox2D
 from sensor_msgs.msg import Image
+from std_srvs.srv import SetBool, SetBoolResponse
 from cv_bridge import CvBridge
 
 
@@ -115,13 +116,32 @@ class Yolov7Publisher:
             weights=weights, conf_thresh=conf_thresh, iou_thresh=iou_thresh,
             device=device
         )
+        self.img_topic = img_topic
         self.img_subscriber = rospy.Subscriber(
             img_topic, Image, self.process_img_msg
         )
         self.detection_publisher = rospy.Publisher(
             pub_topic, Detection2DArray, queue_size=queue_size
         )
+        # Suspends inference while teleop owns the cameras. Unsubscribing, not
+        # skipping frames, so a suspended node does not even receive them. Not
+        # persisted: a restarted node always comes back enabled.
+        self.enable_service = rospy.Service(
+            "~set_enabled", SetBool, self.set_enabled
+        )
         rospy.loginfo("YOLOv7 initialization complete. Ready to start inference")
+
+    def set_enabled(self, req) -> SetBoolResponse:
+        if req.data and self.img_subscriber is None:
+            self.img_subscriber = rospy.Subscriber(
+                self.img_topic, Image, self.process_img_msg
+            )
+        elif not req.data and self.img_subscriber is not None:
+            self.img_subscriber.unregister()
+            self.img_subscriber = None
+        state = "enabled" if req.data else "suspended"
+        rospy.loginfo(f"YOLOv7 inference {state}")
+        return SetBoolResponse(success=True, message=state)
 
     def process_img_msg(self, img_msg: Image):
         """ callback function for publisher """
