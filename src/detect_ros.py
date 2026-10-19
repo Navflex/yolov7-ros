@@ -123,9 +123,6 @@ class Yolov7Publisher:
         self.detection_publisher = rospy.Publisher(
             pub_topic, Detection2DArray, queue_size=queue_size
         )
-        # Suspends inference while teleop owns the cameras. Unsubscribing, not
-        # skipping frames, so a suspended node does not even receive them. Not
-        # persisted: a restarted node always comes back enabled.
         self.enable_service = rospy.Service(
             "~set_enabled", SetBool, self.set_enabled
         )
