@@ -123,9 +123,7 @@ class Yolov7Publisher:
         self.detection_publisher = rospy.Publisher(
             pub_topic, Detection2DArray, queue_size=queue_size
         )
-        self.enable_service = rospy.Service(
-            "~set_enabled", SetBool, self.set_enabled
-        )
+        self.enable_service = rospy.Service("~set_enabled", SetBool, self.set_enabled)
         rospy.loginfo("YOLOv7 initialization complete. Ready to start inference")
 
     def set_enabled(self, req) -> SetBoolResponse:
